@@ -105,9 +105,9 @@ async def premium_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not config.UPIMATE_TOKEN: return await update.message.reply_text("⚠️ Payments offline. Contact Admin.")
     
     keyboard = [
-        [InlineKeyboardButton("🥉 7 Days - ₹9", callback_data="buy_plan_7_9")],
+        [InlineKeyboardButton("🥉 7 Days - ₹1", callback_data="buy_plan_7_1")],
         [InlineKeyboardButton("🥈 15 Days - ₹15", callback_data="buy_plan_15_15")],
-        [InlineKeyboardButton("🥇 30 Days - ₹20", callback_data="buy_plan_30_20")]
+        [InlineKeyboardButton("🥇 30 Days - ₹25", callback_data="buy_plan_30_25")]
     ]
     await update.message.reply_text("💎 **Premium Plans**\nSelect a plan to purchase:", reply_markup=InlineKeyboardMarkup(keyboard))
 
