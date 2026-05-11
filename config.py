@@ -1,7 +1,6 @@
 import os
 import logging
 
-# Logging Setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -15,5 +14,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 UPIMATE_TOKEN = os.getenv("UPIMATE_TOKEN", "")
 DUMP_CHANNEL_ID = os.getenv("DUMP_CHANNEL_ID")
 
-# APIs
+# 🚀 NEW: MongoDB Atlas Connection String
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://<username>:<password>@cluster0.mongodb.net/?retryWrites=true&w=majority")
+
 API_ENDPOINT = "https://gold-newt-367030.hostingersite.com/tera.php?url="
