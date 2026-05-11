@@ -259,12 +259,19 @@ async def auto_check_payment(
                     pass
 
                 try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=success_text
-                    )
-                except:
-                    pass
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=(
+            "🎉 Welcome to Premium!\n\n"
+            "✅ Unlimited TeraBox Downloads\n"
+            "✅ No Daily Limits\n"
+            "✅ Faster Access\n\n"
+            f"📅 Your Premium is active for {days} days.\n\n"
+            "Thank you for supporting the bot ❤️"
+        )
+    )
+except:
+    pass
 
                 logger.info(f"Payment success: {order_id}")
 
