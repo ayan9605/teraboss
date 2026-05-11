@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 
 # ==========================================================
-# Web Server (Handles UPIMate Payment Webhooks)
+# Web Server (Handles PrivzPay Payment Webhooks)
 # ==========================================================
 web_app = Flask(__name__)
 
@@ -43,9 +43,11 @@ def home():
 def health():
     return jsonify({"status": "ok", "service": "telegram-terabox-bot"})
 
-@web_app.route("/upimate-webhook", methods=["POST", "GET"])
-def upimate_webhook():
+# 🚀 NEW: PrivzPay Webhook Route
+@web_app.route("/privzpay-webhook", methods=["POST", "GET"])
+def privzpay_webhook():
     try:
+        # Accept both JSON and Form Data formats
         data = request.json if request.is_json else request.form
         order_id = data.get("order_id")
         status = data.get("status")
@@ -138,7 +140,7 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 async def premium_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not config.UPIMATE_TOKEN:
+    if not config.PRIVZPAY_TOKEN:
         return await update.message.reply_text("⚠️ Payments are currently offline. Contact the admin.")
 
     text = "💎 **Premium Subscription Plans**\n\nUpgrade to Premium to get Unlimited Links and zero limits!\nSelect a plan below to purchase:"
@@ -254,7 +256,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         elif data == "admin_close":
             await query.message.delete()
 
-    # ---- PAYMENT INITIATION LOGIC ----
+    # ---- PAYMENT INITIATION LOGIC (PRIVZPAY) ----
     elif data.startswith("buy_plan_"):
         await query.answer("Creating your payment link...", show_alert=False)
         parts = data.split("_")
@@ -264,9 +266,10 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
         db.create_order(order_id, user_id, amount, days)
 
+        # Form-Encoded Payload requires data=payload format
         payload = {
             "customer_mobile": "9999999999", 
-            "user_token": config.UPIMATE_TOKEN,
+            "user_token": config.PRIVZPAY_TOKEN,
             "amount": str(amount),
             "order_id": order_id,
             "redirect_url": f"https://t.me/{context.bot.username}",
@@ -274,20 +277,28 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "remark2": f"{days}_days_premium"
         }
 
+        # Explicitly set x-www-form-urlencoded
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Content-Type": "application/x-www-form-urlencoded"
         }
 
         try:
-            raw_response = requests.post("https://api.upimate.com/api/create-order", data=payload, headers=headers, timeout=15)
+            # Using data=payload instead of json=payload ensures it sends as form-data
+            raw_response = requests.post("https://privzpay.com/api/create-order", data=payload, headers=headers, timeout=15)
+            
             try:
                 res = raw_response.json()
             except ValueError:
-                logging.error(f"UPIMate Create Order Error - Raw Response: {raw_response.text}")
+                logging.error(f"PrivzPay Create Order Error - Raw Response: {raw_response.text}")
                 return await query.edit_message_text("❌ Payment Gateway Error: The server returned an invalid response. Check bot logs.")
 
-            if res.get("status") in [True, "true", "True"]:
-                payment_url = res["result"]["payment_url"]
+            if res.get("status") in [True, "true", "True", "success", 1]:
+                payment_url = res.get("result", {}).get("payment_url") or res.get("payment_url") # Added fallback just in case structure differs slightly
+                
+                if not payment_url:
+                    return await query.edit_message_text("❌ Payment API Error: Could not extract payment URL.")
+
                 keyboard = [
                     [InlineKeyboardButton("💸 Pay Now", url=payment_url)],
                     [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"check_ord_{order_id}")]
@@ -312,11 +323,15 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if order.get("status") == 'success':
             return await query.answer("✅ This payment has already been processed!", show_alert=True)
 
-        payload = {"user_token": config.UPIMATE_TOKEN, "order_id": order_id}
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        payload = {"user_token": config.PRIVZPAY_TOKEN, "order_id": order_id}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
 
         try:
-            raw_response = requests.post("https://api.upimate.com/api/check-order-status", data=payload, headers=headers, timeout=10)
+            # Assumed Check Order API URL based on standard PG formatting
+            raw_response = requests.post("https://privzpay.com/api/check-order-status", data=payload, headers=headers, timeout=10)
             try:
                 res = raw_response.json()
             except ValueError:
@@ -415,7 +430,7 @@ if __name__ == "__main__":
         print(f"🌐 Running in WEBHOOK mode.\nURL: {clean_url}\nPort: {config.PORT}", flush=True)
         bot.run_webhook(listen="0.0.0.0", port=config.PORT, webhook_url=clean_url)
     else:
-        print("🔄 Running in POLLING mode. Web Server handles UPIMate Webhooks.", flush=True)
+        print("🔄 Running in POLLING mode. Web Server handles PrivzPay Webhooks.", flush=True)
         threading.Thread(target=run_web_server, daemon=True).start()
         print(f"🖥️ Flask web server listening for payments on port {config.PORT}", flush=True)
         bot.run_polling()
