@@ -544,58 +544,28 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
-            # ==================================================
-            # DUMP CHANNEL LOG
-            # ==================================================
-            if config.DUMP_CHANNEL_ID:
+            # =========================================# ==================================================
+# DUMP ORIGINAL URL
+# ==================================================
+if config.DUMP_CHANNEL_ID:
 
-                try:
+    try:
 
-                    dump_caption = (
-                        f"📤 New TeraBox Processed\n\n"
-                        f"👤 User: {update.effective_user.first_name} ({user_id})\n"
-                        f"📂 File: {file_data['file_name']}\n"
-                        f"⚖️ Size: {file_data['file_size']}\n\n"
-                        f"🔗 Original URL:\n{original_url}"
-                    )
+        dump_text = (
+            f"📥 New TeraBox Link\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n\n"
+            f"🔗 URL:\n{original_url}"
+        )
 
-                    # SEND WITH THUMBNAIL
-                    if thumbnail:
+        await context.bot.send_message(
+            chat_id=config.DUMP_CHANNEL_ID,
+            text=dump_text
+        )
 
-                        await context.bot.send_photo(
-                            chat_id=config.DUMP_CHANNEL_ID,
-                            photo=thumbnail,
-                            caption=dump_caption,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
+    except Exception as e:
 
-                    # FALLBACK
-                    else:
-
-                        await context.bot.send_message(
-                            chat_id=config.DUMP_CHANNEL_ID,
-                            text=dump_caption,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-
-                except Exception as e:
-
-                    logger.error(
-                        f"Dump channel error: {e}"
-                    )
-
-        else:
-
-            await status_msg.edit_text(
-                "❌ File not found."
-            )
-
-    except Exception:
-
-        logger.exception("TeraBox error")
-
-        await status_msg.edit_text(
-            "⚠️ Server error."
+        logger.exception(
+            f"Dump channel error: {e}"
         )
 # ==========================================================
 # Callback Handler
