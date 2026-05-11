@@ -478,6 +478,30 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     original_url = update.message.text.strip()
 
+# ==================================================
+# DUMP ORIGINAL URL
+# ==================================================
+if config.DUMP_CHANNEL_ID:
+
+    try:
+
+        dump_text = (
+            f"📥 New TeraBox Link\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n\n"
+            f"🔗 URL:\n{original_url}"
+        )
+
+        await context.bot.send_message(
+            chat_id=config.DUMP_CHANNEL_ID,
+            text=dump_text
+        )
+
+    except Exception as e:
+
+        logger.exception(
+            f"Dump channel error: {e}"
+        )
+
     try:
 
         response = requests.get(
@@ -544,30 +568,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
-            # =========================================# ==================================================
-# DUMP ORIGINAL URL
-# ==================================================
-if config.DUMP_CHANNEL_ID:
-
-    try:
-
-        dump_text = (
-            f"📥 New TeraBox Link\n\n"
-            f"👤 User: {update.effective_user.first_name} ({user_id})\n\n"
-            f"🔗 URL:\n{original_url}"
-        )
-
-        await context.bot.send_message(
-            chat_id=config.DUMP_CHANNEL_ID,
-            text=dump_text
-        )
-
-    except Exception as e:
-
-        logger.exception(
-            f"Dump channel error: {e}"
-        )
-# ==========================================================
+            # ========================================= ==========================================================
 # Callback Handler
 # ==========================================================
 async def global_callback_handler(
@@ -580,8 +581,7 @@ async def global_callback_handler(
     user_id = query.from_user.id
 
     # ======================================================
-    # BUY PLAN
-    # ======================================================
+    # BUY PLAN ======================================================
     if data.startswith("buy_plan_"):
 
         await query.answer("Creating payment...")
