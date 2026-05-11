@@ -352,6 +352,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     user_id = query.from_user.id
 
+    # ADMIN PANEL LOGIC
     if data.startswith("admin_"):
         if user_id != ADMIN_ID:
             return await query.answer("⛔ Unauthorized access.", show_alert=True)
@@ -419,14 +420,16 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "remark2": f"{days}_days_premium"
         }
 
-        # Removed Content-Type application/json to let requests send it as standard form data
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json",
+            "Connection": "keep-alive",
+            "Origin": "https://api.upimate.com"
         }
 
         try:
-            # CHANGED: json=payload to data=payload
-            raw_response = requests.post("https://api.upimate.com/api/create-order", data=payload, headers=headers, timeout=15)
+            raw_response = requests.post("https://api.upimate.com/api/create-order", json=payload, headers=headers, timeout=15)
             try:
                 res = raw_response.json()
             except ValueError:
@@ -479,12 +482,14 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         }
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json",
+            "Connection": "keep-alive"
         }
 
         try:
-            # CHANGED: json=payload to data=payload
-            raw_response = requests.post("https://api.upimate.com/api/check-order-status", data=payload, headers=headers, timeout=10)
+            raw_response = requests.post("https://api.upimate.com/api/check-order-status", json=payload, headers=headers, timeout=10)
             try:
                 res = raw_response.json()
             except ValueError:
@@ -493,120 +498,4 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             if res.get("status") in [True, "true", "True"] and res.get("result", {}).get("status") == "success":
                 c.execute("UPDATE orders SET status='success' WHERE order_id=?", (order_id,))
                 conn.commit()
-                days_to_add = order[2]
-                buyer_id = order[0]
-                add_premium(buyer_id, days_to_add)
-                await query.edit_message_text(f"✅ **Payment Successful!**\n\nThank you for your purchase. **{days_to_add} Days** of Premium has been added to your account. Enjoy unlimited access!")
-            else:
-                await query.answer("⏳ Payment pending or not found. If you just paid, please wait 30 seconds and click again.", show_alert=True)
-        except Exception as e:
-            logging.error(f"Error checking order: {e}")
-            await query.answer("⚠️ Could not reach the payment gateway. Try again in a moment.", show_alert=True)
-        finally:
-            conn.close()
-
-# ==========================================================
-# Admin Commands (Standard)
-# ==========================================================
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return await update.message.reply_text("⛔ You are not authorized.")
-
-    keyboard = [
-        [InlineKeyboardButton("📊 Bot Statistics", callback_data="admin_stats")],
-        [
-            InlineKeyboardButton("📢 Broadcast", callback_data="admin_help_broadcast"),
-            InlineKeyboardButton("🎁 Add Premium", callback_data="admin_help_premium")
-        ],
-        [InlineKeyboardButton("❌ Close Panel", callback_data="admin_close")]
-    ]
-    
-    await update.message.reply_text(
-        "🛠️ **Admin Control Panel**\n\nSelect an option below:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-
-async def admin_add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    if len(context.args) != 2:
-        return await update.message.reply_text("⚠️ Usage: /addpremium <user_id> <days>")
-
-    try:
-        target_user_id = int(context.args[0])
-        days = int(context.args[1])
-        
-        target_user = get_user(target_user_id)
-        if not target_user:
-            return await update.message.reply_text("❌ User not found in the database. Ask them to send /start first.")
-
-        add_premium(target_user_id, days)
-        await update.message.reply_text(f"✅ Successfully added {days} days of premium to user {target_user_id}.")
-        
-        try:
-            await context.bot.send_message(chat_id=target_user_id, text=f"🎉 Congratulations! You have been granted {days} days of Premium access by the Admin!")
-        except:
-            pass
-    except ValueError:
-        await update.message.reply_text("❌ Please enter valid numbers for user_id and days.")
-
-async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    msg_to_send = " ".join(context.args)
-    if not msg_to_send:
-        return await update.message.reply_text("Usage: /broadcast your message")
-
-    conn = sqlite3.connect('bot_database.db')
-    c = conn.cursor()
-    c.execute("SELECT user_id FROM users")
-    users = c.fetchall()
-    conn.close()
-
-    success, fail = 0, 0
-    await update.message.reply_text("📢 Broadcast started...")
-
-    for user in users:
-        try:
-            await context.bot.send_message(chat_id=user[0], text=msg_to_send)
-            success += 1
-        except:
-            fail += 1
-
-    await update.message.reply_text(f"✅ Broadcast finished!\nSuccess: {success}\nFailed: {fail}")
-
-# ==========================================================
-# Main Entry Point
-# ==========================================================
-if __name__ == "__main__":
-    print("🚀 --- SCRIPT IS STARTING --- 🚀", flush=True)
-    
-    init_db()
-
-    if not TOKEN:
-        print("❌ Error: TELEGRAM_TOKEN missing!", flush=True)
-        raise SystemExit(1)
-
-    bot = ApplicationBuilder().token(TOKEN).build()
-
-    bot.add_handler(CommandHandler("start", start))
-    bot.add_handler(CommandHandler("myaccount", my_account))
-    bot.add_handler(CommandHandler("premium", premium_menu)) 
-    bot.add_handler(CommandHandler("admin", admin_panel))
-    bot.add_handler(CommandHandler("addpremium", admin_add_premium))
-    bot.add_handler(CommandHandler("broadcast", admin_broadcast))
-    bot.add_handler(CallbackQueryHandler(global_callback_handler))
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_terabox))
-
-    if WEBHOOK_URL:
-        clean_url = WEBHOOK_URL.rstrip("/")
-        print(f"🌐 Running in WEBHOOK mode.\nURL: {clean_url}\nPort: {PORT}", flush=True)
-        bot.run_webhook(listen="0.0.0.0", port=PORT, webhook_url=clean_url)
-    else:
-        print("🔄 Running in POLLING mode. Web Server handles UPIMate Webhooks.", flush=True)
-        threading.Thread(target=run_web_server, daemon=True).start()
-        print(f"🖥️ Flask web server listening for payments on port {PORT}", flush=True)
-        bot.run_polling()
+                days_to_add = or
