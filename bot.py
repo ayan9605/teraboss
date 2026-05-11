@@ -294,7 +294,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 return await query.edit_message_text("❌ Payment Gateway Error: The server returned an invalid response. Check bot logs.")
 
             if res.get("status") in [True, "true", "True", "success", 1]:
-                payment_url = res.get("result", {}).get("payment_url") or res.get("payment_url") # Added fallback just in case structure differs slightly
+                payment_url = res.get("result", {}).get("payment_url") or res.get("payment_url") 
                 
                 if not payment_url:
                     return await query.edit_message_text("❌ Payment API Error: Could not extract payment URL.")
