@@ -356,9 +356,16 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "remark2": f"{days}_days_premium"
         }
 
+        # Anti-Mod_Security Headers
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
         try:
-            # 1. Fetch raw response first to catch HTML errors
-            raw_response = requests.post("https://api.upimate.com/api/create-order", json=payload, timeout=15)
+            # Send payload with headers
+            raw_response = requests.post("https://api.upimate.com/api/create-order", json=payload, headers=headers, timeout=15)
             
             try:
                 res = raw_response.json()
@@ -413,9 +420,16 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "order_id": order_id
         }
 
+        # Anti-Mod_Security Headers
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
         try:
-            # 1. Fetch raw response first to catch HTML errors
-            raw_response = requests.post("https://api.upimate.com/api/check-order-status", json=payload, timeout=10)
+            # Send payload with headers
+            raw_response = requests.post("https://api.upimate.com/api/check-order-status", json=payload, headers=headers, timeout=10)
             
             try:
                 res = raw_response.json()
