@@ -37,7 +37,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PORT = int(os.getenv("PORT", "5000"))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
-UPIMATE_TOKEN = os.getenv("UPIMATE_TOKEN", "") # Add your UPIMate Token to environment variables!
+UPIMATE_TOKEN = os.getenv("UPIMATE_TOKEN", "") # Ensure this is set in Render!
 
 API_ENDPOINT = "https://gold-newt-367030.hostingersite.com/tera.php?url="
 
@@ -55,7 +55,6 @@ def health():
     return jsonify({"status": "ok", "service": "telegram-terabox-bot"})
 
 def run_web_server():
-    import logging
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
     web_app.run(host="0.0.0.0", port=PORT)
@@ -66,7 +65,6 @@ def run_web_server():
 def init_db():
     conn = sqlite3.connect('bot_database.db')
     c = conn.cursor()
-    # Users table
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -77,7 +75,6 @@ def init_db():
             last_link_date TEXT
         )
     ''')
-    # Orders table for automated payments
     c.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             order_id TEXT PRIMARY KEY,
@@ -350,7 +347,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         conn.close()
 
         payload = {
-            "customer_mobile": "9999999999",  # Dummy mobile since telegram doesn't provide it automatically
+            "customer_mobile": "9999999999", 
             "user_token": UPIMATE_TOKEN,
             "amount": str(amount),
             "order_id": order_id,
@@ -360,9 +357,16 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         }
 
         try:
-            res = requests.post("https://api.upimate.com/api/create-order", json=payload, timeout=15).json()
+            # 1. Fetch raw response first to catch HTML errors
+            raw_response = requests.post("https://api.upimate.com/api/create-order", json=payload, timeout=15)
             
-            # API returns true as boolean or "true" as string depending on their strictness. We check both.
+            try:
+                res = raw_response.json()
+            except ValueError:
+                logging.error(f"UPIMate Create Order Error - Raw Response: {raw_response.text}")
+                await query.edit_message_text("❌ Payment Gateway Error: The server returned an invalid response. Check bot logs.")
+                return
+
             if res.get("status") in [True, "true", "True"]:
                 payment_url = res["result"]["payment_url"]
                 keyboard = [
@@ -404,16 +408,21 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             conn.close()
             return await query.answer("✅ This payment has already been processed!", show_alert=True)
 
-        # Check with UPIMate
         payload = {
             "user_token": UPIMATE_TOKEN,
             "order_id": order_id
         }
 
         try:
-            res = requests.post("https://api.upimate.com/api/check-order-status", json=payload, timeout=10).json()
+            # 1. Fetch raw response first to catch HTML errors
+            raw_response = requests.post("https://api.upimate.com/api/check-order-status", json=payload, timeout=10)
             
-            # Note: UPIMate returns {"status": true, "result": {"status": "success"}}
+            try:
+                res = raw_response.json()
+            except ValueError:
+                logging.error(f"UPIMate Check Order Error - Raw Response: {raw_response.text}")
+                return await query.answer("❌ Payment Gateway returned an invalid response.", show_alert=True)
+
             if res.get("status") in [True, "true", "True"] and res.get("result", {}).get("status") == "success":
                 # Transaction Successful!
                 c.execute("UPDATE orders SET status='success' WHERE order_id=?", (order_id,))
@@ -509,7 +518,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main Entry Point
 # ==========================================================
 if __name__ == "__main__":
-    print("🚀 --- SCRIPT SUCCESSFULLY REACHED MAIN ENTRY POINT --- 🚀", flush=True)
+    print("🚀 --- SCRIPT IS STARTING --- 🚀", flush=True)
     
     init_db()
 
@@ -532,7 +541,7 @@ if __name__ == "__main__":
     # Unified Callback Handler for Buttons
     bot.add_handler(CallbackQueryHandler(global_callback_handler))
 
-    # Message Handler (Only triggers for terabox/nephobox links)
+    # Message Handler (Only triggers for terabox links now)
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_terabox))
 
     # Dynamic Execution Mode
