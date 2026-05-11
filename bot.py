@@ -35,10 +35,13 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PORT = int(os.getenv("PORT", "5000"))
 
+# Add WEBHOOK_URL variable (e.g. https://my-bot-app.herokuapp.com)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
+
 API_ENDPOINT = "https://gold-newt-367030.hostingersite.com/tera.php?url="
 
 # ==========================================================
-# Dummy Flask Server (for Web Service Deployment)
+# Dummy Flask Server (Used ONLY in Polling Mode for PaaS)
 # ==========================================================
 web_app = Flask(__name__)
 
@@ -54,6 +57,10 @@ def health():
     })
 
 def run_web_server():
+    # Disabling Flask logs to keep the console clean
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
     web_app.run(host="0.0.0.0", port=PORT)
 
 # ==========================================================
@@ -361,17 +368,10 @@ if __name__ == "__main__":
         print("❌ Error: TELEGRAM_TOKEN missing!")
         raise SystemExit(1)
 
-    # Start Flask server in background thread
-    threading.Thread(
-        target=run_web_server,
-        daemon=True
-    ).start()
-
-    print(f"🌐 Dummy web server running on port {PORT}")
-
-    # Start Telegram bot
+    # Initialize Bot Application
     bot = ApplicationBuilder().token(TOKEN).build()
 
+    # Register Handlers
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("myaccount", my_account))
     bot.add_handler(CommandHandler("stats", admin_stats))
@@ -383,5 +383,25 @@ if __name__ == "__main__":
         )
     )
 
-    print("✅ Telegram Bot is running...")
-    bot.run_polling()
+    # Dynamic Execution Mode
+    if WEBHOOK_URL:
+        # Strip trailing slashes to prevent telegram api errors
+        clean_url = WEBHOOK_URL.rstrip("/")
+        print(f"🌐 Running in WEBHOOK mode.\nURL: {clean_url}\nPort: {PORT}")
+        
+        bot.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=clean_url
+        )
+    else:
+        print("🔄 Running in POLLING mode.")
+        
+        # Start Flask server in background thread ONLY for port binding (PaaS health check)
+        threading.Thread(
+            target=run_web_server,
+            daemon=True
+        ).start()
+        print(f"🖥️ Dummy Flask web server running on port {PORT}")
+        
+        bot.run_polling()
