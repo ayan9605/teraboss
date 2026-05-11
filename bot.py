@@ -258,7 +258,7 @@ async def premium_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "💎 **Premium Subscription Plans**\n\nUpgrade to Premium to get Unlimited Links and zero limits!\nSelect a plan below to purchase:"
     
     keyboard = [
-        [InlineKeyboardButton("🥉 7 Days Plan - ₹9", callback_data="buy_plan_7_9")],
+        [InlineKeyboardButton("🥉 7 Days Plan - ₹1", callback_data="buy_plan_7_9")],
         [InlineKeyboardButton("🥈 15 Days Plan - ₹15", callback_data="buy_plan_15_15")],
         [InlineKeyboardButton("🥇 30 Days Plan - ₹20", callback_data="buy_plan_30_20")]
     ]
