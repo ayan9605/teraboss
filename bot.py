@@ -253,7 +253,7 @@ async def auto_check_payment(
                 success_text = (
                     f"✅ PAYMENT SUCCESSFUL\n\n"
                     f"💎 Premium Activated\n"
-                    f"📅 Duration: {days} Days\n"
+                    f"🗓️ Duration: {days} Days\n"
                     f"🧾 Order ID: {order_id}\n"
                     f"🏦 UTR: {utr}"
                 )
@@ -276,7 +276,7 @@ async def auto_check_payment(
                             "✅ Unlimited TeraBox Downloads\n"
                             "✅ No Daily Limits\n"
                             "✅ Faster Access\n\n"
-                            f"📅 Your Premium is active for {days} days.\n\n"
+                            f"🗓️ Your Premium is active for {days} days.\n\n"
                             "Thank you for supporting the bot ❤️"
                         )
                     )
@@ -426,7 +426,7 @@ async def premium_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton(
-                "🥉 7 Days - ₹1",
+                "🥉 7 Days - ₹10",
                 callback_data="buy_plan_7_1"
             )
         ],
