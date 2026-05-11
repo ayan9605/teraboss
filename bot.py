@@ -506,4 +506,46 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Broadcast finished!\nSuccess: {success}\nFailed: {fail}")
 
 # ==========================================================
-# Main Entry P
+# Main Entry Point
+# ==========================================================
+if __name__ == "__main__":
+    print("🚀 --- SCRIPT SUCCESSFULLY REACHED MAIN ENTRY POINT --- 🚀", flush=True)
+    
+    init_db()
+
+    if not TOKEN:
+        print("❌ Error: TELEGRAM_TOKEN missing!", flush=True)
+        raise SystemExit(1)
+
+    bot = ApplicationBuilder().token(TOKEN).build()
+
+    # User Handlers
+    bot.add_handler(CommandHandler("start", start))
+    bot.add_handler(CommandHandler("myaccount", my_account))
+    bot.add_handler(CommandHandler("premium", premium_menu)) 
+    
+    # Admin Handlers
+    bot.add_handler(CommandHandler("admin", admin_panel))
+    bot.add_handler(CommandHandler("addpremium", admin_add_premium))
+    bot.add_handler(CommandHandler("broadcast", admin_broadcast))
+    
+    # Unified Callback Handler for Buttons
+    bot.add_handler(CallbackQueryHandler(global_callback_handler))
+
+    # Message Handler (Only triggers for terabox/nephobox links)
+    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_terabox))
+
+    # Dynamic Execution Mode
+    if WEBHOOK_URL:
+        clean_url = WEBHOOK_URL.rstrip("/")
+        print(f"🌐 Running in WEBHOOK mode.\nURL: {clean_url}\nPort: {PORT}", flush=True)
+        bot.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=clean_url
+        )
+    else:
+        print("🔄 Running in POLLING mode.", flush=True)
+        threading.Thread(target=run_web_server, daemon=True).start()
+        print(f"🖥️ Dummy Flask web server running on port {PORT}", flush=True)
+        bot.run_polling()
