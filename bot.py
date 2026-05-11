@@ -537,6 +537,31 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
+            # ==================================================
+            # FALLBACK TO TEXT MESSAGE
+            # ==================================================
+            else:
+
+                await update.message.reply_text(
+                    caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+        else:
+
+            await status_msg.edit_text(
+                "❌ File not found."
+            )
+
+    except Exception:
+
+        logger.exception("TeraBox error")
+
+        await status_msg.edit_text(
+            "⚠️ Server error."
+        )
+
+
 # ==================================================
 # DUMP CHANNEL LOG
 # ==================================================
@@ -575,30 +600,6 @@ if config.DUMP_CHANNEL_ID:
 
         logger.error(
             f"Dump channel error: {e}"
-        )
-
-            # ==================================================
-            # FALLBACK TO TEXT MESSAGE
-            # ==================================================
-            else:
-
-                await update.message.reply_text(
-                    caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-
-        else:
-
-            await status_msg.edit_text(
-                "❌ File not found."
-            )
-
-    except Exception:
-
-        logger.exception("TeraBox error")
-
-        await status_msg.edit_text(
-            "⚠️ Server error."
         )
 # ==========================================================
 # Callback Handler
