@@ -259,7 +259,7 @@ async def auto_check_payment(
                     pass
 
                 try:
-    await context.bot.send_message(
+                    await context.bot.send_message(
         chat_id=user_id,
         text=(
             "🎉 Welcome to Premium!\n\n"
