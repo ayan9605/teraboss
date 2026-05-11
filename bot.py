@@ -146,8 +146,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     await context.bot.send_message(
                         chat_id=referred_by,
-                        text="🎉 অভিনন্দন! আপনার ৩টি রেফারেল পূর্ণ হয়েছে। "
-                             "আপনি ৭ দিনের Premium পেয়েছেন!"
+                        text="🎉 Congratulations! You have completed 3 referrals. "
+                             "You've received 7 days of Premium!"
                     )
                 except:
                     pass
@@ -155,11 +155,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
 
     welcome_text = (
-        f"👋 স্বাগতম, {update.effective_user.first_name}!\n\n"
-        "আমি TeraBox Downloader Bot.\n"
-        "🔸 Free User: দিনে ৫টি লিঙ্ক\n"
+        f"👋 Welcome, {update.effective_user.first_name}!\n\n"
+        "I am the TeraBox Downloader Bot.\n"
+        "🔸 Free User: 5 links per day\n"
         "🔸 Premium User: Unlimited\n\n"
-        "রেফারেল লিঙ্ক পেতে /myaccount ব্যবহার করুন।"
+        "Use /myaccount to get your referral link."
     )
 
     await update.message.reply_text(welcome_text)
@@ -169,7 +169,7 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(user_id)
 
     if not user:
-        return await update.message.reply_text("দয়া করে আগে /start দিন।")
+        return await update.message.reply_text("Please send /start first.")
 
     refer_link = f"https://t.me/{context.bot.username}?start={user_id}"
 
@@ -179,17 +179,17 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if is_premium:
         prem_date = datetime.fromisoformat(user[3]).strftime('%Y-%m-%d %H:%M')
-        status = f"🌟 Premium (পর্যন্ত: {prem_date})"
+        status = f"🌟 Premium (Until: {prem_date})"
     else:
-        status = "👤 Free User (দিনে ৫টি লিঙ্ক)"
+        status = "👤 Free User (5 links per day)"
 
     msg = (
-        "📊 আপনার একাউন্ট তথ্য:\n\n"
-        f"স্ট্যাটাস: {status}\n"
-        f"আজকের ব্যবহার: {user[4]}/5\n"
-        f"মোট রেফার: {user[2]} জন\n\n"
-        f"🎁 রেফারেল লিঙ্ক:\n{refer_link}\n\n"
-        "৩ জন রেফার করলেই ৭ দিনের Premium!"
+        "📊 Your Account Info:\n\n"
+        f"Status: {status}\n"
+        f"Today's Usage: {user[4]}/5\n"
+        f"Total Referrals: {user[2]}\n\n"
+        f"🎁 Referral Link:\n{refer_link}\n\n"
+        "Refer 3 people to get 7 days of Premium!"
     )
 
     await update.message.reply_text(msg)
@@ -203,7 +203,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "terabox" not in url and "nephobox" not in url:
         return await update.message.reply_text(
-            "❌ এটি সঠিক TeraBox লিঙ্ক নয়।"
+            "❌ This is not a valid TeraBox link."
         )
 
     user = get_user(user_id)
@@ -232,11 +232,11 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Limit check
         if not is_premium and user[4] >= 5:
             return await update.message.reply_text(
-                "⚠️ আপনার আজকের ৫টি ফ্রি লিঙ্কের লিমিট শেষ!\n\n"
-                "Unlimited access পেতে বন্ধুদের রেফার করুন।"
+                "⚠️ Your daily limit of 5 free links is over!\n\n"
+                "Refer friends to get unlimited access."
             )
 
-        status_msg = await update.message.reply_text("🔎 প্রসেসিং হচ্ছে...")
+        status_msg = await update.message.reply_text("🔎 Processing...")
 
         response = requests.get(
             f"{API_ENDPOINT}{url}",
@@ -254,15 +254,15 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_data = response["data"][0]
 
             caption = (
-                "✅ ফাইল পাওয়া গেছে!\n\n"
-                f"📂 নাম: {file_data['file_name']}\n"
-                f"⚖️ সাইজ: {file_data['file_size']}"
+                "✅ File found!\n\n"
+                f"📂 Name: {file_data['file_name']}\n"
+                f"⚖️ Size: {file_data['file_size']}"
             )
 
             keyboard = [
                 [
                     InlineKeyboardButton(
-                        "📺 অনলাইন স্ট্রিম",
+                        "📺 Stream Online",
                         web_app=WebAppInfo(
                             url=file_data["stream_final_url"]
                         )
@@ -270,7 +270,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [
                     InlineKeyboardButton(
-                        "📥 ডাউনলোড",
+                        "📥 Download",
                         url=file_data["download_url"]
                     )
                 ]
@@ -285,14 +285,14 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await status_msg.edit_text(
-                "❌ ফাইল পাওয়া যায়নি বা লিঙ্ক এক্সপায়ার হয়ে গেছে।"
+                "❌ File not found or the link has expired."
             )
 
     except Exception as e:
         logging.exception("Error while processing TeraBox link")
         try:
             await status_msg.edit_text(
-                "⚠️ সার্ভারে সমস্যা হচ্ছে। পরে চেষ্টা করুন।"
+                "⚠️ Server is experiencing issues. Please try again later."
             )
         except:
             pass
@@ -313,7 +313,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     await update.message.reply_text(
-        f"📈 বট স্ট্যাটাস:\nমোট ইউজার: {total_users} জন"
+        f"📈 Bot Status:\nTotal Users: {total_users}"
     )
 
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -324,7 +324,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not msg_to_send:
         return await update.message.reply_text(
-            "ব্যবহার: /broadcast আপনার মেসেজ"
+            "Usage: /broadcast your message"
         )
 
     conn = sqlite3.connect('bot_database.db')
@@ -335,7 +335,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     success, fail = 0, 0
 
-    await update.message.reply_text("📢 ব্রডকাস্ট শুরু হয়েছে...")
+    await update.message.reply_text("📢 Broadcast started...")
 
     for user in users:
         try:
@@ -348,7 +348,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fail += 1
 
     await update.message.reply_text(
-        f"✅ ব্রডকাস্ট শেষ!\nসফল: {success}\nব্যর্থ: {fail}"
+        f"✅ Broadcast finished!\nSuccess: {success}\nFailed: {fail}"
     )
 
 # ==========================================================
