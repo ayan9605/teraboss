@@ -507,10 +507,18 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Use the specific API provided
         api_url = "https://gold-newt-367030.hostingersite.com/tera.php"
         
-        # Make the request safely using 'params' to automatically format '?url=...'
+        # Disguise the Python script as a standard web browser to bypass Cloudflare/Hostinger 403 blocks
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+        
+        # Make the request safely with headers and params
         api_response = requests.get(
             api_url,
             params={"url": original_url},
+            headers=headers,
             timeout=15
         )
 
@@ -519,7 +527,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = api_response.json()
         except Exception:
             logger.error(f"Non-JSON API Response: {api_response.status_code} - {api_response.text[:200]}")
-            await status_msg.edit_text("❌ The TeraBox API is currently down or returned an invalid response. Please try again later.")
+            await status_msg.edit_text("❌ The TeraBox API is currently down or returning a security challenge. Please try again later.")
             return
 
         # Process the successful JSON response
@@ -588,8 +596,6 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error processing Terabox link: {e}")
         await status_msg.edit_text("❌ An unexpected error occurred while processing your link.")
-
-
 # ==========================================================
 # Callback Handler
 # ==========================================================
