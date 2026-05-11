@@ -38,6 +38,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PORT = int(os.getenv("PORT", "5000"))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
 UPIMATE_TOKEN = os.getenv("UPIMATE_TOKEN", "")
+DUMP_CHANNEL_ID = os.getenv("DUMP_CHANNEL_ID") # NEW: Dump Channel ID
 
 API_ENDPOINT = "https://gold-newt-367030.hostingersite.com/tera.php?url="
 
@@ -54,11 +55,9 @@ def home():
 def health():
     return jsonify({"status": "ok", "service": "telegram-terabox-bot"})
 
-# 🚀 NEW: Automatic Payment Webhook Listener
 @web_app.route("/upimate-webhook", methods=["POST", "GET"])
 def upimate_webhook():
     try:
-        # Handle both JSON and Form Data payloads from gateway
         if request.is_json:
             data = request.json
         else:
@@ -74,14 +73,12 @@ def upimate_webhook():
             order = c.fetchone()
             
             if order and order[3] != 'success':
-                # Mark as success
                 c.execute("UPDATE orders SET status='success' WHERE order_id=?", (order_id,))
                 conn.commit()
                 
                 days_to_add = order[2]
                 buyer_id = order[0]
                 
-                # Update Premium
                 c.execute("SELECT premium_until FROM users WHERE user_id=?", (buyer_id,))
                 user_data = c.fetchone()
                 current_premium = user_data[0] if user_data else None
@@ -94,7 +91,6 @@ def upimate_webhook():
                 c.execute("UPDATE users SET premium_until=? WHERE user_id=?", (new_date.isoformat(), buyer_id))
                 conn.commit()
 
-                # Notify User Automatically via direct Telegram API
                 msg = f"✅ **Payment Received Automatically!**\n\nThank you! **{days_to_add} Days** of Premium has been instantly added to your account."
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={
                     "chat_id": buyer_id,
@@ -258,7 +254,7 @@ async def premium_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "💎 **Premium Subscription Plans**\n\nUpgrade to Premium to get Unlimited Links and zero limits!\nSelect a plan below to purchase:"
     
     keyboard = [
-        [InlineKeyboardButton("🥉 7 Days Plan - ₹1", callback_data="buy_plan_7_9")],
+        [InlineKeyboardButton("🥉 7 Days Plan - ₹9", callback_data="buy_plan_7_9")],
         [InlineKeyboardButton("🥈 15 Days Plan - ₹15", callback_data="buy_plan_15_15")],
         [InlineKeyboardButton("🥇 30 Days Plan - ₹20", callback_data="buy_plan_30_20")]
     ]
@@ -271,7 +267,6 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     url = update.message.text.strip().lower()
 
-    # Ignore normal text completely
     if "terabox" not in url and "nephobox" not in url:
         return 
 
@@ -315,8 +310,30 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📺 Stream Online", web_app=WebAppInfo(url=file_data["stream_final_url"]))],
                 [InlineKeyboardButton("📥 Download", url=file_data["download_url"])]
             ]
+            
+            # Send file to User
             await status_msg.delete()
             await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(keyboard))
+
+            # 🚀 NEW: Send to Dump Channel
+            if DUMP_CHANNEL_ID:
+                try:
+                    dump_caption = (
+                        f"📤 **New TeraBox Processed**\n\n"
+                        f"👤 **User:** {update.effective_user.first_name} (`{user_id}`)\n"
+                        f"📂 **File:** {file_data['file_name']}\n"
+                        f"⚖️ **Size:** {file_data['file_size']}\n\n"
+                        f"🔗 **Original Link:**\n`{original_url}`"
+                    )
+                    await context.bot.send_message(
+                        chat_id=DUMP_CHANNEL_ID,
+                        text=dump_caption,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logging.error(f"Failed to send to Dump Channel: {e}")
+
         else:
             await status_msg.edit_text("❌ File not found or the link has expired.")
 
@@ -337,7 +354,6 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     user_id = query.from_user.id
 
-    # ADMIN PANEL LOGIC
     if data.startswith("admin_"):
         if user_id != ADMIN_ID:
             return await query.answer("⛔ Unauthorized access.", show_alert=True)
@@ -381,7 +397,6 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         elif data == "admin_close":
             await query.message.delete()
 
-    # PAYMENT INITIATION LOGIC
     elif data.startswith("buy_plan_"):
         await query.answer("Creating your payment link...", show_alert=False)
         parts = data.split("_")
@@ -441,7 +456,6 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             logging.error(f"Error creating order: {e}")
             await query.edit_message_text("❌ Server failed to connect to the payment gateway. Please try again later.")
 
-    # PAYMENT VERIFICATION LOGIC (Manual Fallback)
     elif data.startswith("check_ord_"):
         await query.answer("Verifying payment...", show_alert=False)
         order_id = data.split("check_ord_")[1]
@@ -589,12 +603,10 @@ if __name__ == "__main__":
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_terabox))
 
     if WEBHOOK_URL:
-        # Warning: Webhook mode blocks UPIMate Webhook from working
         clean_url = WEBHOOK_URL.rstrip("/")
         print(f"🌐 Running in WEBHOOK mode.\nURL: {clean_url}\nPort: {PORT}", flush=True)
         bot.run_webhook(listen="0.0.0.0", port=PORT, webhook_url=clean_url)
     else:
-        # Standard Polling Mode (Supports UPIMate Webhooks!)
         print("🔄 Running in POLLING mode. Web Server handles UPIMate Webhooks.", flush=True)
         threading.Thread(target=run_web_server, daemon=True).start()
         print(f"🖥️ Flask web server listening for payments on port {PORT}", flush=True)
