@@ -504,11 +504,25 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
-        response = requests.get(
-            f"{config.API_ENDPOINT}{original_url}",
+        # Use the specific API provided
+        api_url = "https://gold-newt-367030.hostingersite.com/tera.php"
+        
+        # Make the request safely using 'params' to automatically format '?url=...'
+        api_response = requests.get(
+            api_url,
+            params={"url": original_url},
             timeout=15
-        ).json()
+        )
 
+        # Safely attempt to parse the JSON
+        try:
+            response = api_response.json()
+        except Exception:
+            logger.error(f"Non-JSON API Response: {api_response.status_code} - {api_response.text[:200]}")
+            await status_msg.edit_text("❌ The TeraBox API is currently down or returned an invalid response. Please try again later.")
+            return
+
+        # Process the successful JSON response
         if response.get("success"):
 
             file_data = response["data"][0]
@@ -569,12 +583,11 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
         else:
-            await status_msg.edit_text("❌ Failed to fetch file details.")
+            await status_msg.edit_text("❌ Failed to fetch file details. The link might be invalid.")
 
-    # Added the missing except block here!
     except Exception as e:
         logger.error(f"Error processing Terabox link: {e}")
-        await status_msg.edit_text("❌ An error occurred while processing your link.")
+        await status_msg.edit_text("❌ An unexpected error occurred while processing your link.")
 
 
 # ==========================================================
