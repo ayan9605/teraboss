@@ -537,6 +537,46 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
+# ==================================================
+# DUMP CHANNEL LOG
+# ==================================================
+if config.DUMP_CHANNEL_ID:
+
+    try:
+
+        dump_caption = (
+            f"📤 New TeraBox Processed\n\n"
+            f"👤 User: {update.effective_user.first_name} ({user_id})\n"
+            f"📂 File: {file_data['file_name']}\n"
+            f"⚖️ Size: {file_data['file_size']}\n\n"
+            f"🔗 Original URL:\n{original_url}"
+        )
+
+        # SEND WITH THUMBNAIL
+        if thumbnail:
+
+            await context.bot.send_photo(
+                chat_id=config.DUMP_CHANNEL_ID,
+                photo=thumbnail,
+                caption=dump_caption,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        # FALLBACK
+        else:
+
+            await context.bot.send_message(
+                chat_id=config.DUMP_CHANNEL_ID,
+                text=dump_caption,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+    except Exception as e:
+
+        logger.error(
+            f"Dump channel error: {e}"
+        )
+
             # ==================================================
             # FALLBACK TO TEXT MESSAGE
             # ==================================================
