@@ -182,8 +182,6 @@ async def privzpay_webhook(request: Request):
 
             db.add_premium(buyer_id, days)
 
-           
-
             return {"status": "processed"}
 
         return {"status": "pending"}
@@ -320,6 +318,8 @@ async def auto_check_payment(
         )
 
     logger.info(f"Payment expired: {order_id}")
+
+
 # ==========================================================
 # User Commands
 # ==========================================================
@@ -478,29 +478,29 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     original_url = update.message.text.strip()
 
-# ==================================================
-# DUMP ORIGINAL URL
-# ==================================================
-if config.DUMP_CHANNEL_ID:
+    # ==================================================
+    # DUMP ORIGINAL URL
+    # ==================================================
+    if hasattr(config, 'DUMP_CHANNEL_ID') and config.DUMP_CHANNEL_ID:
 
-    try:
+        try:
 
-        dump_text = (
-            f"📥 New TeraBox Link\n\n"
-            f"👤 User: {update.effective_user.first_name} ({user_id})\n\n"
-            f"🔗 URL:\n{original_url}"
-        )
+            dump_text = (
+                f"📥 New TeraBox Link\n\n"
+                f"👤 User: {update.effective_user.first_name} ({user_id})\n\n"
+                f"🔗 URL:\n{original_url}"
+            )
 
-        await context.bot.send_message(
-            chat_id=config.DUMP_CHANNEL_ID,
-            text=dump_text
-        )
+            await context.bot.send_message(
+                chat_id=config.DUMP_CHANNEL_ID,
+                text=dump_text
+            )
 
-    except Exception as e:
+        except Exception as e:
 
-        logger.exception(
-            f"Dump channel error: {e}"
-        )
+            logger.exception(
+                f"Dump channel error: {e}"
+            )
 
     try:
 
@@ -568,7 +568,16 @@ if config.DUMP_CHANNEL_ID:
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
-            # ========================================= ==========================================================
+        else:
+            await status_msg.edit_text("❌ Failed to fetch file details.")
+
+    # Added the missing except block here!
+    except Exception as e:
+        logger.error(f"Error processing Terabox link: {e}")
+        await status_msg.edit_text("❌ An error occurred while processing your link.")
+
+
+# ==========================================================
 # Callback Handler
 # ==========================================================
 async def global_callback_handler(
@@ -581,7 +590,8 @@ async def global_callback_handler(
     user_id = query.from_user.id
 
     # ======================================================
-    # BUY PLAN ======================================================
+    # BUY PLAN
+    # ======================================================
     if data.startswith("buy_plan_"):
 
         await query.answer("Creating payment...")
