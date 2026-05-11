@@ -223,6 +223,9 @@ async def auto_check_payment(
 
             logger.info(f"Payment check result: {result}")
 
+            # ==================================================
+            # PAYMENT SUCCESS
+            # ==================================================
             if (
                 result.get("status") == "COMPLETED"
                 and result.get("result", {}).get("status") == "SUCCESS"
@@ -233,9 +236,11 @@ async def auto_check_payment(
                 if not order:
                     return
 
+                # Prevent duplicate processing
                 if order.get("status") == "success":
                     return
 
+                # Update Database
                 db.update_order_status(order_id, "success")
 
                 db.add_premium(user_id, days)
@@ -253,30 +258,41 @@ async def auto_check_payment(
                     f"🏦 UTR: {utr}"
                 )
 
+                # Edit invoice message
                 try:
                     await message.edit_text(success_text)
-                except:
-                    pass
 
+                except Exception as e:
+                    logger.error(
+                        f"Message edit error: {e}"
+                    )
+
+                # Send Premium Welcome Message
                 try:
                     await context.bot.send_message(
-        chat_id=user_id,
-        text=(
-            "🎉 Welcome to Premium!\n\n"
-            "✅ Unlimited TeraBox Downloads\n"
-            "✅ No Daily Limits\n"
-            "✅ Faster Access\n\n"
-            f"📅 Your Premium is active for {days} days.\n\n"
-            "Thank you for supporting the bot ❤️"
-        )
-    )
-except:
-    pass
+                        chat_id=user_id,
+                        text=(
+                            "🎉 Welcome to Premium!\n\n"
+                            "✅ Unlimited TeraBox Downloads\n"
+                            "✅ No Daily Limits\n"
+                            "✅ Faster Access\n\n"
+                            f"📅 Your Premium is active for {days} days.\n\n"
+                            "Thank you for supporting the bot ❤️"
+                        )
+                    )
 
-                logger.info(f"Payment success: {order_id}")
+                except Exception as e:
+                    logger.error(
+                        f"Premium welcome message error: {e}"
+                    )
+
+                logger.info(
+                    f"Payment success: {order_id}"
+                )
 
                 return
 
+            # Wait 10 seconds
             await asyncio.sleep(10)
 
         except Exception as e:
@@ -287,17 +303,23 @@ except:
 
             await asyncio.sleep(10)
 
+    # ======================================================
+    # PAYMENT EXPIRED
+    # ======================================================
     try:
+
         await message.edit_text(
             "⌛ Payment link expired.\n\n"
             "Please generate a new payment link."
         )
-    except:
-        pass
+
+    except Exception as e:
+
+        logger.error(
+            f"Expiry message error: {e}"
+        )
 
     logger.info(f"Payment expired: {order_id}")
-
-
 # ==========================================================
 # User Commands
 # ==========================================================
