@@ -43,40 +43,86 @@ def home():
 def health():
     return jsonify({"status": "ok", "service": "telegram-terabox-bot"})
 
-# 🚀 NEW: PrivzPay Webhook Route
 @web_app.route("/privzpay-webhook", methods=["POST", "GET"])
 def privzpay_webhook():
+    """
+    Accepts callbacks from PrivzPay.
+    Logs everything for debugging.
+    """
     try:
-        # Accept both JSON and Form Data formats
-        data = request.json if request.is_json else request.form
+        # Log raw request for debugging
+        logging.info("=== Payment webhook received ===")
+        logging.info("Headers: %s", dict(request.headers))
+        raw_body = request.get_data(as_text=True)
+        logging.info("Raw body: %s", raw_body)
+
+        # Parse data (JSON or form)
+        if request.is_json:
+            data = request.json
+        else:
+            data = request.form.to_dict()
+        logging.info("Parsed data: %s", data)
+
+        # Extract order_id and status from any nesting
         order_id = data.get("order_id")
         status = data.get("status")
+        if not order_id and "result" in data:
+            order_id = data["result"].get("order_id")
+        if not status and "result" in data:
+            status = data["result"].get("status", "").lower()
+        status_str = str(status).lower() if status else ""
 
-        if status in ["success", "True", True] or data.get("result", {}).get("status") == "success":
+        # Check if payment was successful
+        if status_str in ["success", "true", "1"]:
             order = db.get_order(order_id)
-            
-            if order and order.get("status") != 'success':
-                db.update_order_status(order_id, 'success')
-                days_to_add = order.get("days")
-                buyer_id = order.get("user_id")
-                
-                db.add_premium(buyer_id, days_to_add)
+            if not order:
+                logging.error(f"Order {order_id} not found in database")
+                return jsonify({"status": "error", "msg": "order not found"}), 404
 
-                msg = f"✅ **Payment Received Automatically!**\n\nThank you! **{days_to_add} Days** of Premium has been instantly added to your account."
-                requests.post(f"https://api.telegram.org/bot{config.TOKEN}/sendMessage", json={
-                    "chat_id": buyer_id,
-                    "text": msg,
-                    "parse_mode": "Markdown"
-                })
-        return jsonify({"status": "received"})
+            if order.get("status") == "success":
+                logging.info(f"Order {order_id} already processed")
+                return jsonify({"status": "already_done"})
+
+            # Mark as paid and grant premium
+            db.update_order_status(order_id, "success")
+            days = order.get("days")
+            buyer_id = order.get("user_id")
+            db.add_premium(buyer_id, days)
+
+            # Notify user
+            msg = (
+                f"✅ **Payment Received Automatically!**\n\n"
+                f"Thank you! **{days} Days** of Premium has been instantly added to your account."
+            )
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{config.TOKEN}/sendMessage",
+                    json={
+                        "chat_id": buyer_id,
+                        "text": msg,
+                        "parse_mode": "Markdown"
+                    },
+                    timeout=10
+                )
+            except Exception as e:
+                logging.error(f"Failed to notify user {buyer_id}: {e}")
+
+            return jsonify({"status": "processed"})
+
+        logging.info(f"Payment not completed yet. Status: {status_str}")
+        return jsonify({"status": "pending"})
+
     except Exception as e:
-        logging.error(f"Webhook processing error: {e}")
+        logging.exception("Webhook processing error")
         return jsonify({"status": "error"}), 500
 
-def run_web_server():
+
+def run_web_server(port):
+    """Starts Flask on given port (production dev server – consider waitress/gunicorn)."""
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
-    web_app.run(host="0.0.0.0", port=config.PORT)
+    web_app.run(host="0.0.0.0", port=port)
+
 
 # ==========================================================
 # User Commands
@@ -113,6 +159,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text)
 
+
 async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = db.get_user(user_id)
@@ -139,17 +186,23 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg)
 
+
 async def premium_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not config.PRIVZPAY_TOKEN:
         return await update.message.reply_text("⚠️ Payments are currently offline. Contact the admin.")
 
-    text = "💎 **Premium Subscription Plans**\n\nUpgrade to Premium to get Unlimited Links and zero limits!\nSelect a plan below to purchase:"
+    text = (
+        "💎 **Premium Subscription Plans**\n\n"
+        "Upgrade to Premium to get Unlimited Links and zero limits!\n"
+        "Select a plan below to purchase:"
+    )
     keyboard = [
         [InlineKeyboardButton("🥉 7 Days Plan - ₹9", callback_data="buy_plan_7_9")],
         [InlineKeyboardButton("🥈 15 Days Plan - ₹15", callback_data="buy_plan_15_15")],
         [InlineKeyboardButton("🥇 30 Days Plan - ₹20", callback_data="buy_plan_30_20")]
     ]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
 
 # ==========================================================
 # Main Downloader
@@ -159,14 +212,15 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip().lower()
 
     if "terabox" not in url and "nephobox" not in url:
-        return 
+        return
 
     db.add_user(user_id)
     is_prem = db.is_premium(user_id)
 
     if not db.handle_daily_limits(user_id, is_prem):
         return await update.message.reply_text(
-            "⚠️ Your daily limit of 5 free links is over!\nUse /premium to buy unlimited access, or refer friends."
+            "⚠️ Your daily limit of 5 free links is over!\n"
+            "Use /premium to buy unlimited access, or refer friends."
         )
 
     status_msg = await update.message.reply_text("🔎 Processing...")
@@ -183,7 +237,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📺 Stream Online", web_app=WebAppInfo(url=file_data["stream_final_url"]))],
                 [InlineKeyboardButton("📥 Download", url=file_data["download_url"])]
             ]
-            
+
             await status_msg.delete()
             await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -214,6 +268,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
+
 # ==========================================================
 # Callback Query Handler (Admin Panel + Payments)
 # ==========================================================
@@ -226,7 +281,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith("admin_"):
         if user_id != config.ADMIN_ID:
             return await query.answer("⛔ Unauthorized access.", show_alert=True)
-        
+
         await query.answer()
 
         if data == "admin_stats":
@@ -248,10 +303,16 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         elif data == "admin_main":
             keyboard = [
                 [InlineKeyboardButton("📊 Bot Statistics", callback_data="admin_stats")],
-                [InlineKeyboardButton("📢 Broadcast", callback_data="admin_help_broadcast"), InlineKeyboardButton("🎁 Add Premium", callback_data="admin_help_premium")],
+                [
+                    InlineKeyboardButton("📢 Broadcast", callback_data="admin_help_broadcast"),
+                    InlineKeyboardButton("🎁 Add Premium", callback_data="admin_help_premium")
+                ],
                 [InlineKeyboardButton("❌ Close Panel", callback_data="admin_close")]
             ]
-            await query.edit_message_text("🛠️ **Admin Control Panel**\n\nSelect an option below:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.edit_message_text(
+                "🛠️ **Admin Control Panel**\n\nSelect an option below:",
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+            )
 
         elif data == "admin_close":
             await query.message.delete()
@@ -266,9 +327,8 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
         db.create_order(order_id, user_id, amount, days)
 
-        # Form-Encoded Payload requires data=payload format
         payload = {
-            "customer_mobile": "9999999999", 
+            "customer_mobile": "9999999999",
             "user_token": config.PRIVZPAY_TOKEN,
             "amount": str(amount),
             "order_id": order_id,
@@ -277,51 +337,59 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "remark2": f"{days}_days_premium"
         }
 
-        # Explicitly set x-www-form-urlencoded
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Content-Type": "application/x-www-form-urlencoded"
         }
 
         try:
-            # Using data=payload instead of json=payload ensures it sends as form-data
-            raw_response = requests.post("https://privzpay.com/api/create-order", data=payload, headers=headers, timeout=15)
-            
+            raw_response = requests.post(
+                "https://privzpay.com/api/create-order",
+                data=payload,
+                headers=headers,
+                timeout=15
+            )
             try:
                 res = raw_response.json()
             except ValueError:
                 logging.error(f"PrivzPay Create Order Error - Raw Response: {raw_response.text}")
-                return await query.edit_message_text("❌ Payment Gateway Error: The server returned an invalid response. Check bot logs.")
+                return await query.edit_message_text("❌ Payment Gateway Error: Invalid response. Check logs.")
 
             if res.get("status") in [True, "true", "True", "success", 1]:
-                payment_url = res.get("result", {}).get("payment_url") or res.get("payment_url") 
-                
+                payment_url = res.get("result", {}).get("payment_url") or res.get("payment_url")
                 if not payment_url:
-                    return await query.edit_message_text("❌ Payment API Error: Could not extract payment URL.")
+                    return await query.edit_message_text("❌ Could not extract payment URL.")
 
                 keyboard = [
                     [InlineKeyboardButton("💸 Pay Now", url=payment_url)],
                     [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"check_ord_{order_id}")]
                 ]
-                text = f"🧾 **Invoice Created**\n\n**Plan:** {days} Days Premium\n**Amount:** ₹{amount}\n**Order ID:** `{order_id}`\n\n⚠️ *This link will expire in 30 minutes.*\nThe system will automatically grant premium when paid, or click **Check Payment Status** manually."
+                text = (
+                    f"🧾 **Invoice Created**\n\n"
+                    f"**Plan:** {days} Days Premium\n"
+                    f"**Amount:** ₹{amount}\n"
+                    f"**Order ID:** `{order_id}`\n\n"
+                    "⚠️ *This link will expire in 30 minutes.*\n"
+                    "The system will automatically grant premium when paid, or click **Check Payment Status** manually."
+                )
                 await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             else:
                 await query.edit_message_text(f"❌ Payment API Error: {res.get('message', 'Unknown Error')}")
+
         except Exception as e:
             logging.error(f"Error creating order: {e}")
             await query.edit_message_text("❌ Server failed to connect to the payment gateway.")
 
     # ---- PAYMENT VERIFICATION LOGIC (Manual Fallback) ----
     elif data.startswith("check_ord_"):
-        await query.answer("Verifying payment...", show_alert=False)
+        await query.answer("Checking payment...", show_alert=False)
         order_id = data.split("check_ord_")[1]
 
         order = db.get_order(order_id)
         if not order:
-            return await query.answer("❌ Order not found in database!", show_alert=True)
-        
-        if order.get("status") == 'success':
-            return await query.answer("✅ This payment has already been processed!", show_alert=True)
+            return await query.answer("❌ Order not found!", show_alert=True)
+        if order.get("status") == "success":
+            return await query.answer("✅ Already paid and activated!", show_alert=True)
 
         payload = {"user_token": config.PRIVZPAY_TOKEN, "order_id": order_id}
         headers = {
@@ -330,24 +398,34 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         }
 
         try:
-            # Assumed Check Order API URL based on standard PG formatting
-            raw_response = requests.post("https://privzpay.com/api/check-order-status", data=payload, headers=headers, timeout=10)
+            raw_response = requests.post(
+                "https://privzpay.com/api/check-order-status",   # Verify actual endpoint with PrivzPay docs
+                data=payload,
+                headers=headers,
+                timeout=10
+            )
+            logging.info(f"Check order raw response: {raw_response.text}")
             try:
                 res = raw_response.json()
             except ValueError:
-                return await query.answer("❌ Payment Gateway returned an invalid response.", show_alert=True)
+                logging.error("Invalid JSON from order check")
+                return await query.answer("❌ Gateway returned invalid response.", show_alert=True)
 
             if res.get("status") in [True, "true", "True"] and res.get("result", {}).get("status") == "success":
-                db.update_order_status(order_id, 'success')
+                db.update_order_status(order_id, "success")
                 days_to_add = order.get("days")
                 buyer_id = order.get("user_id")
                 db.add_premium(buyer_id, days_to_add)
-                await query.edit_message_text(f"✅ **Payment Successful!**\n\n**{days_to_add} Days** of Premium has been added to your account.")
+                await query.edit_message_text(
+                    f"✅ **Payment Successful!**\n\n**{days_to_add} Days** of Premium has been added to your account."
+                )
             else:
-                await query.answer("⏳ Payment pending or not found. Wait 30 seconds and click again.", show_alert=True)
+                await query.answer("⏳ Payment still pending. Wait a moment and try again.", show_alert=True)
+
         except Exception as e:
-            logging.error(f"Error checking order: {e}")
-            await query.answer("⚠️ Could not reach the payment gateway.", show_alert=True)
+            logging.error(f"Manual check error: {e}")
+            await query.answer("⚠️ Could not reach payment gateway.", show_alert=True)
+
 
 # ==========================================================
 # Admin Slash Commands
@@ -358,10 +436,18 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton("📊 Bot Statistics", callback_data="admin_stats")],
-        [InlineKeyboardButton("📢 Broadcast", callback_data="admin_help_broadcast"), InlineKeyboardButton("🎁 Add Premium", callback_data="admin_help_premium")],
+        [
+            InlineKeyboardButton("📢 Broadcast", callback_data="admin_help_broadcast"),
+            InlineKeyboardButton("🎁 Add Premium", callback_data="admin_help_premium")
+        ],
         [InlineKeyboardButton("❌ Close Panel", callback_data="admin_close")]
     ]
-    await update.message.reply_text("🛠️ **Admin Control Panel**\n\nSelect an option below:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(
+        "🛠️ **Admin Control Panel**\n\nSelect an option below:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
 
 async def admin_add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID:
@@ -374,15 +460,19 @@ async def admin_add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         days = int(context.args[1])
         if not db.get_user(target_id):
             return await update.message.reply_text("❌ User not found.")
-        
+
         db.add_premium(target_id, days)
         await update.message.reply_text(f"✅ Added {days} days of premium to user {target_id}.")
         try:
-            await context.bot.send_message(chat_id=target_id, text=f"🎉 Congratulations! You have been granted {days} days of Premium access by the Admin!")
+            await context.bot.send_message(
+                chat_id=target_id,
+                text=f"🎉 Congratulations! You have been granted {days} days of Premium access by the Admin!"
+            )
         except:
             pass
     except ValueError:
         await update.message.reply_text("❌ Please enter valid numbers.")
+
 
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID:
@@ -404,6 +494,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"✅ Broadcast finished!\nSuccess: {success}\nFailed: {fail}")
 
+
 # ==========================================================
 # Main Entry Point
 # ==========================================================
@@ -414,23 +505,29 @@ if __name__ == "__main__":
         print("❌ Error: TELEGRAM_TOKEN missing!", flush=True)
         raise SystemExit(1)
 
+    # Determine port for the payment webhook server
+    # Add PRIVZPAY_WEBHOOK_PORT to your config.py (e.g., 5000)
+    privzpay_port = getattr(config, "PRIVZPAY_WEBHOOK_PORT", 5000)
+
     bot = ApplicationBuilder().token(config.TOKEN).build()
 
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("myaccount", my_account))
-    bot.add_handler(CommandHandler("premium", premium_menu)) 
+    bot.add_handler(CommandHandler("premium", premium_menu))
     bot.add_handler(CommandHandler("admin", admin_panel))
     bot.add_handler(CommandHandler("addpremium", admin_add_premium))
     bot.add_handler(CommandHandler("broadcast", admin_broadcast))
     bot.add_handler(CallbackQueryHandler(global_callback_handler))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_terabox))
 
+    # Always start the PrivzPay webhook server, no matter which Telegram mode we use.
+    threading.Thread(target=run_web_server, args=(privzpay_port,), daemon=True).start()
+    print(f"💳 PrivzPay webhook server listening on port {privzpay_port}", flush=True)
+
     if config.WEBHOOK_URL:
         clean_url = config.WEBHOOK_URL.rstrip("/")
         print(f"🌐 Running in WEBHOOK mode.\nURL: {clean_url}\nPort: {config.PORT}", flush=True)
         bot.run_webhook(listen="0.0.0.0", port=config.PORT, webhook_url=clean_url)
     else:
-        print("🔄 Running in POLLING mode. Web Server handles PrivzPay Webhooks.", flush=True)
-        threading.Thread(target=run_web_server, daemon=True).start()
-        print(f"🖥️ Flask web server listening for payments on port {config.PORT}", flush=True)
+        print("🔄 Running in POLLING mode.", flush=True)
         bot.run_polling()
