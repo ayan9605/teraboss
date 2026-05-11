@@ -427,7 +427,7 @@ async def premium_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton(
                 "🥉 7 Days - ₹10",
-                callback_data="buy_plan_7_1"
+                callback_data="buy_plan_7_10"
             )
         ],
         [
