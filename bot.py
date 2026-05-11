@@ -5,7 +5,7 @@ import threading
 import requests
 import sqlite3
 from datetime import datetime, timedelta
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 from telegram import (
     Update,
@@ -37,12 +37,12 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PORT = int(os.getenv("PORT", "5000"))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
-UPIMATE_TOKEN = os.getenv("UPIMATE_TOKEN", "") # Ensure this is set in Render!
+UPIMATE_TOKEN = os.getenv("UPIMATE_TOKEN", "")
 
 API_ENDPOINT = "https://gold-newt-367030.hostingersite.com/tera.php?url="
 
 # ==========================================================
-# Dummy Flask Server (Used ONLY in Polling Mode for PaaS)
+# Web Server (Handles UPIMate Payment Webhooks)
 # ==========================================================
 web_app = Flask(__name__)
 
@@ -53,6 +53,59 @@ def home():
 @web_app.route("/health")
 def health():
     return jsonify({"status": "ok", "service": "telegram-terabox-bot"})
+
+# 🚀 NEW: Automatic Payment Webhook Listener
+@web_app.route("/upimate-webhook", methods=["POST", "GET"])
+def upimate_webhook():
+    try:
+        # Handle both JSON and Form Data payloads from gateway
+        if request.is_json:
+            data = request.json
+        else:
+            data = request.form
+
+        order_id = data.get("order_id")
+        status = data.get("status")
+
+        if status in ["success", "True", True] or data.get("result", {}).get("status") == "success":
+            conn = sqlite3.connect('bot_database.db')
+            c = conn.cursor()
+            c.execute("SELECT user_id, amount, days, status FROM orders WHERE order_id=?", (order_id,))
+            order = c.fetchone()
+            
+            if order and order[3] != 'success':
+                # Mark as success
+                c.execute("UPDATE orders SET status='success' WHERE order_id=?", (order_id,))
+                conn.commit()
+                
+                days_to_add = order[2]
+                buyer_id = order[0]
+                
+                # Update Premium
+                c.execute("SELECT premium_until FROM users WHERE user_id=?", (buyer_id,))
+                user_data = c.fetchone()
+                current_premium = user_data[0] if user_data else None
+
+                if current_premium and datetime.fromisoformat(current_premium) > datetime.now():
+                    new_date = datetime.fromisoformat(current_premium) + timedelta(days=days_to_add)
+                else:
+                    new_date = datetime.now() + timedelta(days=days_to_add)
+
+                c.execute("UPDATE users SET premium_until=? WHERE user_id=?", (new_date.isoformat(), buyer_id))
+                conn.commit()
+
+                # Notify User Automatically via direct Telegram API
+                msg = f"✅ **Payment Received Automatically!**\n\nThank you! **{days_to_add} Days** of Premium has been instantly added to your account."
+                requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={
+                    "chat_id": buyer_id,
+                    "text": msg,
+                    "parse_mode": "Markdown"
+                })
+            conn.close()
+        return jsonify({"status": "received"})
+    except Exception as e:
+        logging.error(f"Webhook processing error: {e}")
+        return jsonify({"status": "error"}), 500
 
 def run_web_server():
     log = logging.getLogger('werkzeug')
@@ -284,9 +337,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     user_id = query.from_user.id
 
-    # -----------------------------
     # ADMIN PANEL LOGIC
-    # -----------------------------
     if data.startswith("admin_"):
         if user_id != ADMIN_ID:
             return await query.answer("⛔ Unauthorized access.", show_alert=True)
@@ -330,9 +381,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         elif data == "admin_close":
             await query.message.delete()
 
-    # -----------------------------
     # PAYMENT INITIATION LOGIC
-    # -----------------------------
     elif data.startswith("buy_plan_"):
         await query.answer("Creating your payment link...", show_alert=False)
         parts = data.split("_")
@@ -356,17 +405,14 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "remark2": f"{days}_days_premium"
         }
 
-        # Anti-Mod_Security Headers
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json",
             "Content-Type": "application/json"
         }
 
         try:
-            # Send payload with headers
             raw_response = requests.post("https://api.upimate.com/api/create-order", json=payload, headers=headers, timeout=15)
-            
             try:
                 res = raw_response.json()
             except ValueError:
@@ -386,7 +432,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                     f"**Amount:** ₹{amount}\n"
                     f"**Order ID:** `{order_id}`\n\n"
                     "⚠️ *This link will expire in 30 minutes.*\n"
-                    "Click **Pay Now** to complete the transaction, then return here and click **Check Payment Status** to activate your premium."
+                    "The system will automatically grant premium when paid, or you can click **Check Payment Status** below to verify manually."
                 )
                 await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             else:
@@ -395,9 +441,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             logging.error(f"Error creating order: {e}")
             await query.edit_message_text("❌ Server failed to connect to the payment gateway. Please try again later.")
 
-    # -----------------------------
-    # PAYMENT VERIFICATION LOGIC
-    # -----------------------------
+    # PAYMENT VERIFICATION LOGIC (Manual Fallback)
     elif data.startswith("check_ord_"):
         await query.answer("Verifying payment...", show_alert=False)
         order_id = data.split("check_ord_")[1]
@@ -420,31 +464,24 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             "order_id": order_id
         }
 
-        # Anti-Mod_Security Headers
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json",
             "Content-Type": "application/json"
         }
 
         try:
-            # Send payload with headers
             raw_response = requests.post("https://api.upimate.com/api/check-order-status", json=payload, headers=headers, timeout=10)
-            
             try:
                 res = raw_response.json()
             except ValueError:
-                logging.error(f"UPIMate Check Order Error - Raw Response: {raw_response.text}")
                 return await query.answer("❌ Payment Gateway returned an invalid response.", show_alert=True)
 
             if res.get("status") in [True, "true", "True"] and res.get("result", {}).get("status") == "success":
-                # Transaction Successful!
                 c.execute("UPDATE orders SET status='success' WHERE order_id=?", (order_id,))
                 conn.commit()
-                
                 days_to_add = order[2]
                 buyer_id = order[0]
-                
                 add_premium(buyer_id, days_to_add)
                 await query.edit_message_text(f"✅ **Payment Successful!**\n\nThank you for your purchase. **{days_to_add} Days** of Premium has been added to your account. Enjoy unlimited access!")
             else:
@@ -542,33 +579,23 @@ if __name__ == "__main__":
 
     bot = ApplicationBuilder().token(TOKEN).build()
 
-    # User Handlers
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("myaccount", my_account))
     bot.add_handler(CommandHandler("premium", premium_menu)) 
-    
-    # Admin Handlers
     bot.add_handler(CommandHandler("admin", admin_panel))
     bot.add_handler(CommandHandler("addpremium", admin_add_premium))
     bot.add_handler(CommandHandler("broadcast", admin_broadcast))
-    
-    # Unified Callback Handler for Buttons
     bot.add_handler(CallbackQueryHandler(global_callback_handler))
-
-    # Message Handler (Only triggers for terabox links now)
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_terabox))
 
-    # Dynamic Execution Mode
     if WEBHOOK_URL:
+        # Warning: Webhook mode blocks UPIMate Webhook from working
         clean_url = WEBHOOK_URL.rstrip("/")
         print(f"🌐 Running in WEBHOOK mode.\nURL: {clean_url}\nPort: {PORT}", flush=True)
-        bot.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            webhook_url=clean_url
-        )
+        bot.run_webhook(listen="0.0.0.0", port=PORT, webhook_url=clean_url)
     else:
-        print("🔄 Running in POLLING mode.", flush=True)
+        # Standard Polling Mode (Supports UPIMate Webhooks!)
+        print("🔄 Running in POLLING mode. Web Server handles UPIMate Webhooks.", flush=True)
         threading.Thread(target=run_web_server, daemon=True).start()
-        print(f"🖥️ Dummy Flask web server running on port {PORT}", flush=True)
+        print(f"🖥️ Flask web server listening for payments on port {PORT}", flush=True)
         bot.run_polling()
