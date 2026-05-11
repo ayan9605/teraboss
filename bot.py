@@ -479,6 +479,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     original_url = update.message.text.strip()
 
     try:
+
         response = requests.get(
             f"{config.API_ENDPOINT}{original_url}",
             timeout=15
@@ -494,10 +495,13 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚖️ {file_data['file_size']}"
             )
 
+            # ==================================================
+            # BIGGER PREMIUM STYLE BUTTONS
+            # ==================================================
             keyboard = [
                 [
                     InlineKeyboardButton(
-                        "📺 Stream",
+                        "📺 STREAM NOW",
                         web_app=WebAppInfo(
                             url=file_data["stream_final_url"]
                         )
@@ -505,7 +509,7 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [
                     InlineKeyboardButton(
-                        "📥 Download",
+                        "🚀 FAST DOWNLOAD",
                         url=file_data["download_url"]
                     )
                 ]
@@ -513,24 +517,49 @@ async def handle_terabox(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await status_msg.delete()
 
-            await update.message.reply_text(
-                caption,
-                reply_markup=InlineKeyboardMarkup(keyboard)
+            # ==================================================
+            # GET THUMBNAIL
+            # ==================================================
+            thumbnail = (
+                file_data.get("thumb")
+                or file_data.get("thumbnail")
+                or file_data.get("image")
             )
 
+            # ==================================================
+            # SEND PHOTO WITH BUTTONS
+            # ==================================================
+            if thumbnail:
+
+                await update.message.reply_photo(
+                    photo=thumbnail,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+            # ==================================================
+            # FALLBACK TO TEXT MESSAGE
+            # ==================================================
+            else:
+
+                await update.message.reply_text(
+                    caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
         else:
+
             await status_msg.edit_text(
                 "❌ File not found."
             )
 
     except Exception:
+
         logger.exception("TeraBox error")
 
         await status_msg.edit_text(
             "⚠️ Server error."
         )
-
-
 # ==========================================================
 # Callback Handler
 # ==========================================================
