@@ -12,7 +12,7 @@ import config
 import database as db
 
 # ==========================================================
-# Web Server (Handles UPIMate Payment Webhooks)
+# Web Server (Handles Health Checks & Webhooks)
 # ==========================================================
 web_app = Flask(__name__)
 
@@ -22,7 +22,16 @@ def home():
 
 @web_app.route("/health")
 def health():
-    return jsonify({"status": "ok", "service": "telegram-terabox-bot"})
+    # Ping MongoDB to ensure it is alive
+    is_db_connected = db.ping_db()
+    status_code = 200 if is_db_connected else 500
+    
+    return jsonify({
+        "status": "ok" if is_db_connected else "error",
+        "service": "telegram-terabox-bot",
+        "database": "connected" if is_db_connected else "disconnected",
+        "timestamp": datetime.now().isoformat()
+    }), status_code
 
 @web_app.route("/upimate-webhook", methods=["POST", "GET"])
 def upimate_webhook():
@@ -195,7 +204,14 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Content-Type": "application/json"}
 
         try:
-            res = requests.post("https://api.upimate.com/api/create-order", json=payload, headers=headers, timeout=15).json()
+            # Safe JSON parsing to prevent Mod_Security crashes
+            raw_response = requests.post("https://api.upimate.com/api/create-order", json=payload, headers=headers, timeout=15)
+            try:
+                res = raw_response.json()
+            except ValueError:
+                logging.error(f"UPIMate Create Error - Raw: {raw_response.text}")
+                return await query.edit_message_text("❌ Payment Gateway Error: Invalid server response.")
+
             if res.get("status") in [True, "true", "True"]:
                 keyboard = [
                     [InlineKeyboardButton("💸 Pay Now", url=res["result"]["payment_url"])],
@@ -204,7 +220,8 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 await query.edit_message_text(f"🧾 **Invoice Created**\nAmount: ₹{amount}\nOrder: `{order_id}`", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 await query.edit_message_text("❌ Payment API Error.")
-        except:
+        except Exception as e:
+            logging.error(f"Gateway connection error: {e}")
             await query.edit_message_text("❌ Server failed to connect to the gateway.")
 
     elif data.startswith("check_ord_"):
@@ -218,7 +235,13 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         try:
             payload = {"user_token": config.UPIMATE_TOKEN, "order_id": order_id}
             headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Content-Type": "application/json"}
-            res = requests.post("https://api.upimate.com/api/check-order-status", json=payload, headers=headers, timeout=10).json()
+            
+            raw_response = requests.post("https://api.upimate.com/api/check-order-status", json=payload, headers=headers, timeout=10)
+            try:
+                res = raw_response.json()
+            except ValueError:
+                logging.error(f"UPIMate Check Error - Raw: {raw_response.text}")
+                return await query.answer("❌ Gateway returned invalid response.", show_alert=True)
 
             if res.get("status") in [True, "true", "True"] and res.get("result", {}).get("status") == "success":
                 db.update_order_status(order_id, 'success')
@@ -226,7 +249,8 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 await query.edit_message_text(f"✅ **Success!** Added {order[2]} Days Premium.")
             else:
                 await query.answer("⏳ Payment pending...", show_alert=True)
-        except:
+        except Exception as e:
+            logging.error(f"Gateway check error: {e}")
             await query.answer("⚠️ Gateway timeout.", show_alert=True)
 
 # ==========================================================
