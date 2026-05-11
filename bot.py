@@ -1,6 +1,9 @@
 import time
 import logging
 import requests
+import asyncio
+
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -34,6 +37,48 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ==========================================================
+# PrivzPay SDK
+# ==========================================================
+class OrderStatusSDK:
+
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+    async def check_order_status(self, user_token, order_id):
+
+        url = f"{self.base_url}/api/check-order-status"
+
+        payload = {
+            "user_token": user_token,
+            "order_id": order_id
+        }
+
+        try:
+            response = requests.post(
+                url,
+                data=payload,
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            return {
+                "status": "ERROR",
+                "message": "API request failed"
+            }
+
+        except Exception as e:
+            return {
+                "status": "ERROR",
+                "message": str(e)
+            }
+
+
+payment_sdk = OrderStatusSDK("https://privzpay.com")
 
 
 # ==========================================================
@@ -95,7 +140,6 @@ async def privzpay_webhook(request: Request):
     try:
         logger.info("=== Payment webhook received ===")
 
-        # Parse JSON or FORM
         try:
             data = await request.json()
         except:
@@ -108,7 +152,7 @@ async def privzpay_webhook(request: Request):
         status = data.get("status")
 
         if not order_id and "result" in data:
-            order_id = data["result"].get("order_id")
+            order_id = data["result"].get("orderId")
 
         if not status and "result" in data:
             status = data["result"].get("status", "")
@@ -131,7 +175,6 @@ async def privzpay_webhook(request: Request):
             if order.get("status") == "success":
                 return {"status": "already_done"}
 
-            # Update DB
             db.update_order_status(order_id, "success")
 
             days = order.get("days")
@@ -139,7 +182,6 @@ async def privzpay_webhook(request: Request):
 
             db.add_premium(buyer_id, days)
 
-            # Notify User
             try:
                 await bot.bot.send_message(
                     chat_id=buyer_id,
@@ -162,6 +204,100 @@ async def privzpay_webhook(request: Request):
             status_code=500,
             content={"error": str(e)}
         )
+
+
+# ==========================================================
+# AUTO PAYMENT CHECKER
+# ==========================================================
+async def auto_check_payment(
+    order_id,
+    user_id,
+    days,
+    message,
+    context
+):
+
+    logger.info(f"Started payment checker: {order_id}")
+
+    expiry_time = datetime.utcnow() + timedelta(minutes=30)
+
+    while datetime.utcnow() < expiry_time:
+
+        try:
+
+            result = await payment_sdk.check_order_status(
+                config.PRIVZPAY_TOKEN,
+                order_id
+            )
+
+            logger.info(f"Payment check result: {result}")
+
+            if (
+                result.get("status") == "COMPLETED"
+                and result.get("result", {}).get("status") == "SUCCESS"
+            ):
+
+                order = db.get_order(order_id)
+
+                if not order:
+                    return
+
+                if order.get("status") == "success":
+                    return
+
+                db.update_order_status(order_id, "success")
+
+                db.add_premium(user_id, days)
+
+                utr = (
+                    result.get("result", {}).get("utr")
+                    or "N/A"
+                )
+
+                success_text = (
+                    f"✅ PAYMENT SUCCESSFUL\n\n"
+                    f"💎 Premium Activated\n"
+                    f"📅 Duration: {days} Days\n"
+                    f"🧾 Order ID: {order_id}\n"
+                    f"🏦 UTR: {utr}"
+                )
+
+                try:
+                    await message.edit_text(success_text)
+                except:
+                    pass
+
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=success_text
+                    )
+                except:
+                    pass
+
+                logger.info(f"Payment success: {order_id}")
+
+                return
+
+            await asyncio.sleep(10)
+
+        except Exception as e:
+
+            logger.error(
+                f"Auto payment checker error: {e}"
+            )
+
+            await asyncio.sleep(10)
+
+    try:
+        await message.edit_text(
+            "⌛ Payment link expired.\n\n"
+            "Please generate a new payment link."
+        )
+    except:
+        pass
+
+    logger.info(f"Payment expired: {order_id}")
 
 
 # ==========================================================
@@ -447,12 +583,23 @@ async def global_callback_handler(
                     f"🧾 Invoice Created\n\n"
                     f"Plan: {days} Days\n"
                     f"Amount: ₹{amount}\n"
-                    f"Order ID: {order_id}"
+                    f"Order ID: {order_id}\n\n"
+                    f"⏳ Waiting for payment confirmation..."
                 )
 
-                await query.edit_message_text(
+                payment_message = await query.edit_message_text(
                     text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+                asyncio.create_task(
+                    auto_check_payment(
+                        order_id=order_id,
+                        user_id=user_id,
+                        days=days,
+                        message=payment_message,
+                        context=context
+                    )
                 )
 
             else:
