@@ -182,16 +182,7 @@ async def privzpay_webhook(request: Request):
 
             db.add_premium(buyer_id, days)
 
-            try:
-                await bot.bot.send_message(
-                    chat_id=buyer_id,
-                    text=(
-                        f"✅ Payment Successful!\n\n"
-                        f"{days} Days Premium added to your account."
-                    )
-                )
-            except Exception as e:
-                logger.error(f"Telegram notify failed: {e}")
+           
 
             return {"status": "processed"}
 
