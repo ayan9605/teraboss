@@ -28,7 +28,9 @@ logger = logging.getLogger(__name__)
 # Application Init
 # ==========================================================
 app = FastAPI()
-bot = ApplicationBuilder().token(config.TOKEN).build()
+
+# FIX: Renamed 'bot' to 'application' to match the handler registrations below
+application = ApplicationBuilder().token(config.TOKEN).build()
 
 # ==========================================================
 # Basic Routes
@@ -48,8 +50,9 @@ async def health():
 async def telegram_webhook(request: Request):
     try:
         data = await request.json()
-        update = Update.de_json(data, bot.bot)
-        await bot.process_update(update)
+        # Updated to use 'application'
+        update = Update.de_json(data, application.bot)
+        await application.process_update(update)
         return {"ok": True}
     except Exception as e:
         logger.exception("Telegram webhook error")
@@ -102,20 +105,23 @@ application.add_handler(CommandHandler("userinfo", handlers.admin_user_info)) # 
 # Callback queries (inline buttons) and general text (links)
 application.add_handler(CallbackQueryHandler(handlers.global_callback_handler))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_terabox))
+
 # ==========================================================
 # FastAPI Lifecycle Events
 # ==========================================================
 @app.on_event("startup")
 async def startup():
     logger.info("🚀 Starting bot...")
-    await bot.initialize()
-    await bot.start()
+    # Updated to use 'application'
+    await application.initialize()
+    await application.start()
     webhook_url = f"{config.WEBHOOK_URL}/telegram-webhook"
-    await bot.bot.set_webhook(webhook_url)
+    await application.bot.set_webhook(webhook_url)
     logger.info(f"✅ Webhook set: {webhook_url}")
 
 @app.on_event("shutdown")
 async def shutdown():
     logger.info("🛑 Shutting down bot...")
-    await bot.stop()
-    await bot.shutdown()
+    # Updated to use 'application'
+    await application.stop()
+    await application.shutdown()
