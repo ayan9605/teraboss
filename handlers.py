@@ -291,13 +291,53 @@ async def admin_add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Admin add premium error: {e}")
         await update.message.reply_text("❌ Database error occurred.")
 
+
+async def admin_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != config.ADMIN_ID: return
+    
+    if len(context.args) != 1:
+        return await update.message.reply_text("⚠️ *Usage:* `/userinfo <user_id>`", parse_mode="Markdown")
+        
+    try:
+        target_id = int(context.args[0])
+        user = db.get_user(target_id)
+        
+        if not user:
+            return await update.message.reply_text("❌ User not found in database.")
+            
+        is_prem = db.is_premium(target_id)
+        
+        if is_prem:
+            prem_date = user.get("premium_until")
+            status = f"🌟 Premium (Until: {prem_date.strftime('%Y-%m-%d') if prem_date else 'Unknown'})"
+        else:
+            status = "👤 Free User"
+            
+        msg = (
+            f"🔍 *User Information*\n\n"
+            f"🆔 ID: `{target_id}`\n"
+            f"💎 Status: {status}\n"
+            f"🔗 Links Today: {user.get('links_today', 0)}\n"
+            f"🎁 Referrals: {user.get('referral_count', 0)}"
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid input. User ID must be a number.")
+
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
     
-    if not context.args:
-        return await update.message.reply_text("⚠️ *Usage:* `/broadcast <your message>`", parse_mode="Markdown")
+    # Check if admin is replying to a message (for photos, videos, formatting)
+    reply_to = update.message.reply_to_message
+    msg_text = " ".join(context.args)
+    
+    if not reply_to and not msg_text:
+        return await update.message.reply_text(
+            "⚠️ *Usage:*\n1. `/broadcast <text>`\n2. Reply to any message/photo with `/broadcast` to send it to everyone.", 
+            parse_mode="Markdown"
+        )
         
-    msg = " ".join(context.args)
     users = list(db.get_all_users())
     
     if not users:
@@ -308,9 +348,19 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success, fail = 0, 0
     for user in users:
         try:
-            # Assuming 'user_id' or 'id' is the key in your DB dict
             uid = user.get("user_id") or user.get("id") 
-            await context.bot.send_message(chat_id=uid, text=msg)
+            
+            if reply_to:
+                # Copies the exact message (with images, buttons, bold text, etc)
+                await context.bot.copy_message(
+                    chat_id=uid, 
+                    from_chat_id=update.effective_chat.id, 
+                    message_id=reply_to.message_id
+                )
+            else:
+                # Sends standard text
+                await context.bot.send_message(chat_id=uid, text=msg_text)
+                
             success += 1
             await asyncio.sleep(0.05) # Prevent hitting Telegram API limits
         except:
