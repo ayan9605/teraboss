@@ -89,15 +89,19 @@ async def privzpay_webhook(request: Request):
 # ==========================================================
 # Register Handlers
 # ==========================================================
-bot.add_handler(CommandHandler("start", handlers.start))
-bot.add_handler(CommandHandler("myaccount", handlers.my_account))
-bot.add_handler(CommandHandler("premium", handlers.premium_menu))
-bot.add_handler(CommandHandler("admin", handlers.admin_panel))
-bot.add_handler(CommandHandler("addpremium", handlers.admin_add_premium))
-bot.add_handler(CommandHandler("broadcast", handlers.admin_broadcast))
-bot.add_handler(CallbackQueryHandler(handlers.global_callback_handler))
-bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_terabox))
+application.add_handler(CommandHandler("start", handlers.start))
+application.add_handler(CommandHandler("myaccount", handlers.my_account))
+application.add_handler(CommandHandler("premium", handlers.premium_menu))
 
+# Admin commands
+application.add_handler(CommandHandler("admin", handlers.admin_panel))
+application.add_handler(CommandHandler("addpremium", handlers.admin_add_premium))
+application.add_handler(CommandHandler("broadcast", handlers.admin_broadcast))
+application.add_handler(CommandHandler("userinfo", handlers.admin_user_info)) # <-- New command added!
+
+# Callback queries (inline buttons) and general text (links)
+application.add_handler(CallbackQueryHandler(handlers.global_callback_handler))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_terabox))
 # ==========================================================
 # FastAPI Lifecycle Events
 # ==========================================================
