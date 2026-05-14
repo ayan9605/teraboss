@@ -152,6 +152,7 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     user_id = query.from_user.id
 
+    # --- PRIVZPAY PAYMENT LOGIC ---
     if data.startswith("buy_plan_"):
         await query.answer("Creating payment...")
         parts = data.split("_")
@@ -186,34 +187,133 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             logger.error(f"Payment error: {e}")
             await query.edit_message_text("❌ Payment server error.")
 
+    # --- ADMIN PANEL LOGIC ---
+    elif data.startswith("admin_"):
+        if user_id != config.ADMIN_ID:
+            return await query.answer("❌ You are not authorized to use this menu.", show_alert=True)
+
+        back_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_main")]])
+
+        if data == "admin_main":
+            keyboard = [
+                [InlineKeyboardButton("📊 Bot Statistics", callback_data="admin_stats")],
+                [
+                    InlineKeyboardButton("📢 Broadcast Guide", callback_data="admin_guide_broadcast"),
+                    InlineKeyboardButton("🎁 Premium Guide", callback_data="admin_guide_premium")
+                ],
+                [InlineKeyboardButton("🔍 Find User", callback_data="admin_guide_find")]
+            ]
+            await query.edit_message_text(
+                "🛠️ *Admin Control Panel*\n\nWelcome to the dashboard. What would you like to do?", 
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+
+        elif data == "admin_stats":
+            await query.answer("Fetching stats...")
+            users = db.get_all_users()
+            total_users = len(users) if users else 0
+            
+            # Count premium users 
+            premium_users = sum(1 for u in users if db.is_premium(u.get("user_id", u.get("id"))))
+            free_users = total_users - premium_users
+
+            stats_msg = (
+                "📊 *Bot Statistics*\n\n"
+                f"👥 Total Users: `{total_users}`\n"
+                f"💎 Premium Users: `{premium_users}`\n"
+                f"🆓 Free Users: `{free_users}`"
+            )
+            await query.edit_message_text(stats_msg, reply_markup=back_markup, parse_mode="Markdown")
+
+        elif data == "admin_guide_broadcast":
+            guide_msg = (
+                "📢 *How to Broadcast*\n\n"
+                "To send a message to all users in the bot, simply type:\n"
+                "`/broadcast Your message goes here`\n\n"
+                "_Example:_\n"
+                "`/broadcast We have updated the bot to fix TeraBox errors!`"
+            )
+            await query.edit_message_text(guide_msg, reply_markup=back_markup, parse_mode="Markdown")
+
+        elif data == "admin_guide_premium":
+            guide_msg = (
+                "🎁 *How to Manage Premium*\n\n"
+                "To manually give a user premium, use this command:\n"
+                "`/addpremium <user_id> <days>`\n\n"
+                "_Example:_\n"
+                "`/addpremium 123456789 30`"
+            )
+            await query.edit_message_text(guide_msg, reply_markup=back_markup, parse_mode="Markdown")
+            
+        elif data == "admin_guide_find":
+            guide_msg = (
+                "🔍 *How to Find User Info*\n\n"
+                "Currently handled via database. Future update can include `/userinfo <user_id>` to fetch details directly here."
+            )
+            await query.edit_message_text(guide_msg, reply_markup=back_markup, parse_mode="Markdown")
+
+
 # ==========================================================
 # Admin Panel
 # ==========================================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != config.ADMIN_ID: return
-    await update.message.reply_text("🛠️ Admin Panel")
+    if update.effective_user.id != config.ADMIN_ID:
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 Bot Statistics", callback_data="admin_stats")],
+        [
+            InlineKeyboardButton("📢 Broadcast Guide", callback_data="admin_guide_broadcast"),
+            InlineKeyboardButton("🎁 Premium Guide", callback_data="admin_guide_premium")
+        ],
+        [InlineKeyboardButton("🔍 Find User", callback_data="admin_guide_find")]
+    ]
+    
+    await update.message.reply_text(
+        "🛠️ *Admin Control Panel*\n\nWelcome to the dashboard. What would you like to do?", 
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 async def admin_add_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
-    if len(context.args) != 2: return await update.message.reply_text("Usage: /addpremium user_id days")
+    if len(context.args) != 2: 
+        return await update.message.reply_text("⚠️ *Usage:* `/addpremium <user_id> <days>`", parse_mode="Markdown")
     
     try:
         target_id, days = int(context.args[0]), int(context.args[1])
         db.add_premium(target_id, days)
-        await update.message.reply_text(f"✅ Added {days} days.")
-    except:
-        await update.message.reply_text("❌ Invalid input.")
+        await update.message.reply_text(f"✅ Successfully added *{days} days* of premium to `{target_id}`.", parse_mode="Markdown")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid input. User ID and Days must be numbers.")
+    except Exception as e:
+        logger.error(f"Admin add premium error: {e}")
+        await update.message.reply_text("❌ Database error occurred.")
 
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.ADMIN_ID: return
+    
+    if not context.args:
+        return await update.message.reply_text("⚠️ *Usage:* `/broadcast <your message>`", parse_mode="Markdown")
+        
     msg = " ".join(context.args)
     users = db.get_all_users()
-    success, fail = 0, 0
+    
+    if not users:
+        return await update.message.reply_text("❌ No users found in the database.")
 
+    status_msg = await update.message.reply_text("⏳ Broadcasting message, please wait...")
+    
+    success, fail = 0, 0
     for user in users:
         try:
-            await context.bot.send_message(chat_id=user["user_id"], text=msg)
+            # Assuming 'user_id' or 'id' is the key in your DB dict
+            uid = user.get("user_id") or user.get("id") 
+            await context.bot.send_message(chat_id=uid, text=msg)
             success += 1
+            await asyncio.sleep(0.05) # Prevent hitting Telegram API limits
         except:
             fail += 1
-    await update.message.reply_text(f"✅ Broadcast Done\nSuccess: {success}\nFailed: {fail}")
+            
+    await status_msg.edit_text(f"✅ *Broadcast Complete*\n\n🟢 Success: {success}\n🔴 Failed: {fail} (Users blocked bot)", parse_mode="Markdown")
