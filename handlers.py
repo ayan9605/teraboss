@@ -298,7 +298,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("⚠️ *Usage:* `/broadcast <your message>`", parse_mode="Markdown")
         
     msg = " ".join(context.args)
-    users = db.get_all_users()
+    users = list(db.get_all_users())
     
     if not users:
         return await update.message.reply_text("❌ No users found in the database.")
